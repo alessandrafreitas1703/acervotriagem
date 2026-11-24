@@ -1,0 +1,1411 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão de Acervo & Triagem Bibliográfica</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- html2pdf.js para geração direta de arquivo PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0fdfa',
+                            100: '#ccfbf1',
+                            500: '#14b8a6',
+                            600: '#0d9488',
+                            700: '#0f766e',
+                            900: '#134e4a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Estilos específicos para impressão do Termo */
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 15mm;
+            }
+            body * {
+                visibility: hidden;
+            }
+            #print-area, #print-area * {
+                visibility: visible;
+            }
+            #print-area {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                padding: 0;
+                margin: 0;
+                background: white !important;
+                color: black !important;
+            }
+            #print-area table {
+                page-break-inside: auto;
+            }
+            #print-area tr {
+                page-break-inside: avoid;
+                page-break-after: auto;
+            }
+            #print-area thead {
+                display: table-header-group;
+            }
+            .signature-block {
+                page-break-inside: avoid;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Área Oculta Exclusiva para Impressão / PDF do Termo -->
+    <div id="print-area" class="hidden print:block p-8 bg-white text-slate-900 font-serif"></div>
+
+    <!-- Notificação Toast Flutuante -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none no-print"></div>
+
+    <!-- Modal de Configuração, Pré-visualização e Impressão/PDF do Termo -->
+    <div id="termo-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 hidden items-center justify-center p-4 transition-opacity no-print">
+        <div class="bg-white rounded-2xl max-w-4xl w-full p-6 shadow-xl border border-slate-100 max-h-[92vh] overflow-y-auto flex flex-col">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-4 mb-4 shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="bg-brand-100 text-brand-700 p-2.5 rounded-xl">
+                        <i data-lucide="file-check-2" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <label for="termo-tipo" class="block text-xs font-semibold text-slate-700 mb-1.5">Tipo de Termo / Relatório</label>
+                        <select id="termo-tipo" onchange="updateTermoPreview()" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            <option value="Todos">Relatório Geral (Todos os Lançamentos)</option>
+                            <option value="Doação">Termo de Doação</option>
+                            <option value="Descarte">Termo de Descarte / Baixa</option>
+                            <option value="Envio para Unidade">Termo de Envio para Unidade</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="termo-escopo" class="block text-xs font-semibold text-slate-700 mb-1.5">Seleção de Itens</label>
+                        <select id="termo-escopo" onchange="updateTermoPreview()" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                            <option value="todos-status">Todos os itens da categoria selecionada</option>
+                            <option value="filtrados">Apenas os itens filtrados na busca atual</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="termo-orgao" class="block text-xs font-semibold text-slate-700 mb-1.5">Instituição / Biblioteca de Origem</label>
+                        <input type="text" id="termo-orgao" oninput="updateTermoPreview()" placeholder="Ex: Biblioteca Central" value="Biblioteca / Setor de Acervo"
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="termo-bibliotecario" class="block text-xs font-semibold text-slate-700 mb-1.5">Bibliotecário(a) Responsável</label>
+                        <input type="text" id="termo-bibliotecario" oninput="updateTermoPreview()" placeholder="Nome completo e CRB"
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                    <div>
+                        <label for="termo-recebedor" class="block text-xs font-semibold text-slate-700 mb-1.5">Recebedor / Unidade Destinatária</label>
+                        <input type="text" id="termo-recebedor" oninput="updateTermoPreview()" placeholder="Nome do recebedor / instituição / comissão"
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label for="termo-cidade-data" class="block text-xs font-semibold text-slate-700 mb-1.5">Local e Data do Termo</label>
+                        <input type="text" id="termo-cidade-data" oninput="updateTermoPreview()" placeholder="Ex: Manaus, 23 de novembro de 2026"
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                    <div>
+                        <label for="termo-observacao" class="block text-xs font-semibold text-slate-700 mb-1.5">Observações / Processo (Opcional)</label>
+                        <input type="text" id="termo-observacao" oninput="updateTermoPreview()" placeholder="Ex: Processo SEI nº 0000/2026"
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                </div>
+
+                <div class="bg-brand-50/70 border border-brand-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div class="text-xs text-slate-700">
+                        <span class="font-semibold text-slate-900">Resumo do Documento:</span>
+                        <span id="termo-items-summary" class="ml-1 text-brand-700 font-bold">0 títulos</span>
+                    </div>
+                    <span class="text-[11px] text-brand-800 flex items-center gap-1">
+                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                        <span>Seus registros online permanecem intactos após gerar o PDF</span>
+                    </span>
+                </div>
+
+                <!-- Pré-visualização em tempo real do documento A4 -->
+                <div class="border border-slate-300 rounded-xl bg-slate-100 p-4">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2 flex items-center justify-between">
+                        <span>Pré-visualização da Folha de Impressão / PDF</span>
+                        <span>Formato A4</span>
+                    </div>
+                    <div id="termo-live-preview" class="bg-white border border-slate-200 shadow-xs rounded-lg p-6 max-h-72 overflow-y-auto text-slate-900">
+                        <!-- Conteúdo gerado dinamicamente -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-100 shrink-0">
+                <p class="text-xs text-slate-500">
+                    Baixe o arquivo PDF diretamente ou abra a folha formatada para imprimir.
+                </p>
+                <div class="flex flex-wrap items-center gap-2 ml-auto">
+                    <button type="button" onclick="closeTermoModal()" class="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                        Fechar
+                    </button>
+                    <button type="button" onclick="printTermo()" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-slate-800 text-white hover:bg-slate-900 shadow-sm transition-colors">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        <span>Abrir para Impressão</span>
+                    </button>
+                    <button type="button" id="download-pdf-btn" onclick="downloadTermoPDF()" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 shadow-sm transition-colors">
+                        <i data-lucide="file-down" class="w-4 h-4"></i>
+                        <span>Baixar Arquivo PDF</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmação de Exclusão -->
+    <div id="delete-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-40 hidden items-center justify-center p-4 transition-opacity">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100 transform transition-all">
+            <div class="flex items-center gap-3 text-rose-600 mb-3">
+                <div class="bg-rose-100 p-2.5 rounded-xl">
+                    <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-lg font-bold text-slate-900">Confirmar Exclusão</h3>
+            </div>
+            <p class="text-slate-600 text-sm mb-6 leading-relaxed">
+                Tem certeza que deseja remover <span id="delete-item-title" class="font-semibold text-slate-800"></span> do registro? Esta ação não pode ser desfeita.
+            </p>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="closeDeleteModal()" class="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                    Cancelar
+                </button>
+                <button type="button" id="confirm-delete-btn" class="px-4 py-2.5 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-700 shadow-sm shadow-rose-600/20 transition-colors">
+                    Sim, Excluir
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cabeçalho Superior -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-brand-600 text-white p-2.5 rounded-xl shadow-sm">
+                    <i data-lucide="library" class="w-6 h-6"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-slate-900 tracking-tight">Catalogação & Triagem de Acervo</h1>
+                    <p class="text-xs text-slate-500">Controle de exemplares, doações, descarte e envio para unidades</p>
+                </div>
+            </div>
+
+            <!-- Botões de Backup, Termos e Planilha -->
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" onclick="openTermoModal('Todos')" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors shadow-xs">
+                    <i data-lucide="file-text" class="w-4 h-4"></i>
+                    <span>Imprimir / PDF Termo</span>
+                </button>
+
+                <label for="csv-import-input" class="cursor-pointer inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors border border-slate-200">
+                    <i data-lucide="upload" class="w-4 h-4 text-slate-500"></i>
+                    <span>Importar CSV</span>
+                </label>
+                <input type="file" id="csv-import-input" accept=".csv" class="hidden" onchange="handleCSVImport(event)">
+
+                <button type="button" onclick="exportToCSV()" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors border border-emerald-200">
+                    <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i>
+                    <span>Exportar Excel (CSV)</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Conteúdo Principal -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Painel de Resumo (Cards Estatísticos) -->
+        <section aria-label="Resumo do Acervo" class="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+            <!-- Total de Títulos -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider">Títulos Únicos</span>
+                    <div class="p-1.5 bg-slate-100 rounded-lg text-slate-600">
+                        <i data-lucide="book-open" class="w-4 h-4"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="stat-titles" class="text-2xl sm:text-3xl font-bold text-slate-900">0</span>
+                    <span class="text-xs text-slate-400">registros</span>
+                </div>
+            </div>
+
+            <!-- Total de Exemplares -->
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-slate-500 mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider">Total Exemplares</span>
+                    <div class="p-1.5 bg-brand-50 rounded-lg text-brand-600">
+                        <i data-lucide="layers" class="w-4 h-4"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline gap-2">
+                    <span id="stat-copies" class="text-2xl sm:text-3xl font-bold text-brand-700">0</span>
+                    <span class="text-xs text-slate-400">unidades</span>
+                </div>
+            </div>
+
+            <!-- Destinados para Doação -->
+            <div class="bg-white p-4 rounded-2xl border border-blue-200/80 shadow-sm flex flex-col justify-between relative overflow-hidden">
+                <div class="flex items-center justify-between text-blue-700 mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider">Para Doação</span>
+                    <div class="p-1.5 bg-blue-50 rounded-lg text-blue-600">
+                        <i data-lucide="heart-handshake" class="w-4 h-4"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline justify-between">
+                    <span id="stat-doacao" class="text-2xl sm:text-3xl font-bold text-blue-700">0</span>
+                    <span id="stat-doacao-titulos" class="text-xs font-medium text-blue-600/80 bg-blue-50 px-2 py-0.5 rounded-full">0 títulos</span>
+                </div>
+            </div>
+
+            <!-- Destinados para Descarte -->
+            <div class="bg-white p-4 rounded-2xl border border-rose-200/80 shadow-sm flex flex-col justify-between relative overflow-hidden">
+                <div class="flex items-center justify-between text-rose-700 mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider">Para Descarte</span>
+                    <div class="p-1.5 bg-rose-50 rounded-lg text-rose-600">
+                        <i data-lucide="trash-2" class="w-4 h-4"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline justify-between">
+                    <span id="stat-descarte" class="text-2xl sm:text-3xl font-bold text-rose-700">0</span>
+                    <span id="stat-descarte-titulos" class="text-xs font-medium text-rose-600/80 bg-rose-50 px-2 py-0.5 rounded-full">0 títulos</span>
+                </div>
+            </div>
+
+            <!-- Acervo / Outros -->
+            <div class="col-span-2 lg:col-span-1 bg-white p-4 rounded-2xl border border-emerald-200/80 shadow-sm flex flex-col justify-between">
+                <div class="flex items-center justify-between text-emerald-700 mb-2">
+                    <span class="text-xs font-semibold uppercase tracking-wider">Acervo / Outros</span>
+                    <div class="p-1.5 bg-emerald-50 rounded-lg text-emerald-600">
+                        <i data-lucide="archive" class="w-4 h-4"></i>
+                    </div>
+                </div>
+                <div class="flex items-baseline justify-between">
+                    <span id="stat-outros" class="text-2xl sm:text-3xl font-bold text-emerald-700">0</span>
+                    <span id="stat-outros-titulos" class="text-xs font-medium text-emerald-600/80 bg-emerald-50 px-2 py-0.5 rounded-full">0 títulos</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Formulário de Lançamento / Edição -->
+        <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="px-5 py-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <i id="form-header-icon" data-lucide="plus-circle" class="w-5 h-5 text-brand-600"></i>
+                    <h2 id="form-title" class="font-semibold text-slate-800 text-base">Novo Lançamento no Acervo</h2>
+                </div>
+                <button type="button" id="cancel-edit-btn" onclick="resetForm()" class="hidden text-xs font-medium text-slate-500 hover:text-slate-800 bg-white px-3 py-1.5 rounded-lg border border-slate-200 shadow-xs transition-colors">
+                    Cancelar Edição
+                </button>
+            </div>
+
+            <form id="book-form" onsubmit="handleFormSubmit(event)" class="p-5 space-y-4">
+                <input type="hidden" id="item-id">
+
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+                    <!-- 1. Título -->
+                    <div class="md:col-span-6">
+                        <label for="input-titulo" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Título da Obra / Publicação <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="text" id="input-titulo" required placeholder="Ex: Dom Casmurro, Revista Ciência Hoje..."
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                    </div>
+
+                    <!-- 2. Quantidade -->
+                    <div class="md:col-span-2">
+                        <label for="input-quantidade" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Quantidade <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="number" id="input-quantidade" required min="1" value="1"
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                    </div>
+
+                    <!-- 3. Local de Armazenamento -->
+                    <div class="md:col-span-4">
+                        <label for="input-local" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Local de Armazenamento <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="text" id="input-local" required placeholder="Ex: Estante B3, Caixa 12, Depósito..."
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                    </div>
+
+                    <!-- 4. Ano -->
+                    <div class="md:col-span-2">
+                        <label for="input-ano" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Ano
+                        </label>
+                        <input type="number" id="input-ano" min="1400" max="2100" placeholder="Ex: 2022"
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                    </div>
+
+                    <!-- 5. Editora -->
+                    <div class="md:col-span-4">
+                        <label for="input-editora" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Editora / Instituição
+                        </label>
+                        <input type="text" id="input-editora" placeholder="Ex: Companhia das Letras, Edusp..."
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                    </div>
+
+                    <!-- 6. Cidade -->
+                    <div class="md:col-span-3">
+                        <label for="input-cidade" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Cidade
+                        </label>
+                        <input type="text" id="input-cidade" placeholder="Ex: São Paulo, Manaus, Rio de Janeiro..."
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                    </div>
+
+                    <!-- 7. Status -->
+                    <div class="md:col-span-3">
+                        <label for="input-status" class="block text-xs font-semibold text-slate-700 mb-1.5">
+                            Status de Destinação <span class="text-rose-500">*</span>
+                        </label>
+                        <select id="input-status" onchange="toggleCustomStatus()" required
+                            class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                            <option value="Doação">🔵 Doação</option>
+                            <option value="Descarte">🔴 Descarte</option>
+                            <option value="Envio para Unidade">🟣 Envio para Unidade</option>
+                            <option value="Acervo">🟢 Acervo (Mantido)</option>
+                            <option value="Triagem">🟡 Em Triagem</option>
+                            <option value="Personalizado">⚙️ Outro (Personalizado...)</option>
+                        </select>
+                    </div>
+
+                    <!-- Campo condicional para Status Personalizado -->
+                    <div id="custom-status-container" class="hidden md:col-span-12">
+                        <label for="input-custom-status" class="block text-xs font-semibold text-brand-700 mb-1.5">
+                            Especifique o Status Personalizado <span class="text-rose-500">*</span>
+                        </label>
+                        <input type="text" id="input-custom-status" placeholder="Ex: Restauro, Permuta, Reserva Técnica..."
+                            class="w-full md:w-1/3 px-3.5 py-2 bg-brand-50/40 border border-brand-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+                    </div>
+                </div>
+
+                <!-- Botões de Ação do Formulário -->
+                <div class="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
+                    <span id="cloud-status-badge" class="text-xs text-slate-500 flex items-center gap-1.5">
+                        <i data-lucide="cloud" class="w-3.5 h-3.5 text-brand-600"></i>
+                        <span>Conectando à nuvem...</span>
+                    </span>
+                    <div class="flex items-center gap-2 ml-auto">
+                        <button type="button" onclick="resetForm()" class="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors">
+                            Limpar
+                        </button>
+                        <button type="submit" id="submit-btn" class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 shadow-sm shadow-brand-600/20 transition-all">
+                            <i data-lucide="check" class="w-4 h-4"></i>
+                            <span id="submit-btn-text">Cadastrar Item</span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </section>
+
+        <!-- Lista / Tabela de Registros -->
+        <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+            <!-- Barra de Pesquisa e Filtros -->
+            <div class="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/50 space-y-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <!-- Campo de Busca -->
+                    <div class="relative flex-1 max-w-md">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                        <input type="text" id="search-input" oninput="renderTable()" placeholder="Buscar por título, local, editora, cidade ou ano..."
+                            class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-300 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 transition-all">
+                    </div>
+
+                    <!-- Filtros Rápidos por Status (Pílulas) -->
+                    <div class="flex flex-wrap items-center gap-1.5" id="status-filter-pills">
+                        <button type="button" onclick="setStatusFilter('Todos')" data-filter="Todos"
+                            class="filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-slate-800 text-white shadow-xs">
+                            Todos
+                        </button>
+                        <button type="button" onclick="setStatusFilter('Doação')" data-filter="Doação"
+                            class="filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-blue-700 border border-blue-200 hover:bg-blue-50">
+                            Doação
+                        </button>
+                        <button type="button" onclick="setStatusFilter('Descarte')" data-filter="Descarte"
+                            class="filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-rose-700 border border-rose-200 hover:bg-rose-50">
+                            Descarte
+                        </button>
+                        <button type="button" onclick="setStatusFilter('Envio para Unidade')" data-filter="Envio para Unidade"
+                            class="filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-purple-700 border border-purple-200 hover:bg-purple-50">
+                            Envio Unidade
+                        </button>
+                        <button type="button" onclick="setStatusFilter('Acervo')" data-filter="Acervo"
+                            class="filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
+                            Acervo
+                        </button>
+                        <button type="button" onclick="setStatusFilter('Outros')" data-filter="Outros"
+                            class="filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-white text-slate-600 border border-slate-200 hover:bg-slate-100">
+                            Outros
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabela Responsiva -->
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                            <th class="py-3.5 px-4">Título</th>
+                            <th class="py-3.5 px-3 text-center">Qtd.</th>
+                            <th class="py-3.5 px-4">Local Armazenamento</th>
+                            <th class="py-3.5 px-3">Ano</th>
+                            <th class="py-3.5 px-4">Editora / Cidade</th>
+                            <th class="py-3.5 px-4">Status (Rápido)</th>
+                            <th class="py-3.5 px-4 text-right">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody id="records-tbody" class="divide-y divide-slate-100 text-sm">
+                        <!-- Linhas injetadas via JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Estado Vazio -->
+            <div id="empty-state" class="hidden py-12 px-4 text-center">
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-100 text-slate-400 mb-3">
+                    <i data-lucide="inbox" class="w-6 h-6"></i>
+                </div>
+                <h3 class="text-sm font-semibold text-slate-800">Nenhum registro encontrado</h3>
+                <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                    Cadastre um novo título no formulário acima ou ajuste os filtros de pesquisa.
+                </p>
+            </div>
+
+            <!-- Rodapé da Tabela -->
+            <div class="px-5 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-500">
+                <span id="table-footer-count">Exibindo 0 registros</span>
+                <button type="button" onclick="loadSampleData()" id="load-sample-btn" class="text-brand-600 hover:text-brand-700 font-medium underline self-start sm:self-auto">
+                    Carregar exemplos de demonstração
+                </button>
+            </div>
+        </section>
+
+    </main>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // =========================================================================
+        // ESTADO GLOBAL E CONEXÃO COM FIREBASE (SALVAMENTO ONLINE EM TEMPO REAL)
+        // =========================================================================
+        let records = [];
+        let currentFilter = 'Todos';
+        let itemToDeleteId = null;
+        let db = null;
+        let auth = null;
+        let currentUser = null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'acervo-triagem-default';
+        const LOCAL_STORAGE_KEY = 'acervo_triagem_backup_v1';
+
+        function getRecordsCollectionRef() {
+            return collection(db, 'artifacts', appId, 'public', 'data', 'acervo_registros');
+        }
+
+        function getRecordDocRef(id) {
+            return doc(db, 'artifacts', appId, 'public', 'data', 'acervo_registros', id);
+        }
+
+        function updateCloudStatus(statusText, isOnline = true) {
+            const badge = document.getElementById('cloud-status-badge');
+            if (!badge) return;
+            const iconColor = isOnline ? 'text-emerald-600' : 'text-amber-600';
+            badge.innerHTML = `
+                <i data-lucide="${isOnline ? 'cloud-check' : 'cloud-off'}" class="w-3.5 h-3.5 ${iconColor}"></i>
+                <span>${escapeHTML(statusText)}</span>
+            `;
+            lucide.createIcons();
+        }
+
+        async function initApp() {
+            lucide.createIcons();
+            try {
+                if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    const app = initializeApp(firebaseConfig);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                    currentUser = auth.currentUser;
+
+                    // Escuta em tempo real sem apagar nenhum dado existente
+                    onSnapshot(getRecordsCollectionRef(), (snapshot) => {
+                        const cloudItems = [];
+                        snapshot.forEach((docSnap) => {
+                            cloudItems.push({ id: docSnap.id, ...docSnap.data() });
+                        });
+                        cloudItems.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                        records = cloudItems;
+                        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+                        updateCloudStatus('Salvo online em tempo real', true);
+                        refreshUI();
+                    }, (err) => {
+                        console.error('Erro no snapshot Firestore:', err);
+                        loadLocalFallback();
+                    });
+                } else {
+                    loadLocalFallback();
+                }
+            } catch (error) {
+                console.error('Erro ao inicializar Firebase:', error);
+                loadLocalFallback();
+            }
+        }
+
+        function loadLocalFallback() {
+            try {
+                const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
+                records = saved ? JSON.parse(saved) : [];
+            } catch {
+                records = [];
+            }
+            updateCloudStatus('Salvo localmente no navegador', false);
+            refreshUI();
+        }
+
+        function escapeHTML(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function refreshUI() {
+            updateStats();
+            renderTable();
+            const termoModal = document.getElementById('termo-modal');
+            if (termoModal && !termoModal.classList.contains('hidden')) {
+                updateTermoPreview();
+            }
+        }
+
+        // =========================================================================
+        // ESTATÍSTICAS E FILTROS
+        // =========================================================================
+        function updateStats() {
+            const totalTitles = records.length;
+            const totalCopies = records.reduce((sum, r) => sum + (Number(r.quantidade) || 0), 0);
+
+            const doacaoItems = records.filter(r => r.status === 'Doação');
+            const doacaoCopies = doacaoItems.reduce((sum, r) => sum + (Number(r.quantidade) || 0), 0);
+
+            const descarteItems = records.filter(r => r.status === 'Descarte');
+            const descarteCopies = descarteItems.reduce((sum, r) => sum + (Number(r.quantidade) || 0), 0);
+
+            const outrosItems = records.filter(r => r.status !== 'Doação' && r.status !== 'Descarte');
+            const outrosCopies = outrosItems.reduce((sum, r) => sum + (Number(r.quantidade) || 0), 0);
+
+            document.getElementById('stat-titles').textContent = totalTitles;
+            document.getElementById('stat-copies').textContent = totalCopies;
+            document.getElementById('stat-doacao').textContent = doacaoCopies;
+            document.getElementById('stat-doacao-titulos').textContent = `${doacaoItems.length} ${doacaoItems.length === 1 ? 'título' : 'títulos'}`;
+            document.getElementById('stat-descarte').textContent = descarteCopies;
+            document.getElementById('stat-descarte-titulos').textContent = `${descarteItems.length} ${descarteItems.length === 1 ? 'título' : 'títulos'}`;
+            document.getElementById('stat-outros').textContent = outrosCopies;
+            document.getElementById('stat-outros-titulos').textContent = `${outrosItems.length} ${outrosItems.length === 1 ? 'título' : 'títulos'}`;
+
+            const sampleBtn = document.getElementById('load-sample-btn');
+            if (sampleBtn) {
+                sampleBtn.style.display = records.length === 0 ? 'inline-block' : 'none';
+            }
+        }
+
+        window.setStatusFilter = function(status) {
+            currentFilter = status;
+            document.querySelectorAll('.filter-pill').forEach(btn => {
+                const isSelected = btn.getAttribute('data-filter') === status;
+                if (isSelected) {
+                    btn.className = 'filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all bg-slate-800 text-white shadow-xs';
+                } else {
+                    const filterVal = btn.getAttribute('data-filter');
+                    const mapColors = {
+                        'Todos': 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100',
+                        'Doação': 'bg-white text-blue-700 border border-blue-200 hover:bg-blue-50',
+                        'Descarte': 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50',
+                        'Envio para Unidade': 'bg-white text-purple-700 border border-purple-200 hover:bg-purple-50',
+                        'Acervo': 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50',
+                        'Outros': 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-100'
+                    };
+                    btn.className = `filter-pill px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${mapColors[filterVal] || mapColors['Todos']}`;
+                }
+            });
+            renderTable();
+        };
+
+        function getStatusSelectClasses(status) {
+            if (status === 'Doação') return 'bg-blue-50 text-blue-700 border-blue-200';
+            if (status === 'Descarte') return 'bg-rose-50 text-rose-700 border-rose-200';
+            if (status === 'Envio para Unidade') return 'bg-purple-50 text-purple-700 border-purple-200';
+            if (status === 'Acervo') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+            if (status === 'Triagem') return 'bg-amber-50 text-amber-700 border-amber-200';
+            return 'bg-slate-100 text-slate-700 border-slate-300';
+        }
+
+        window.renderTable = function() {
+            const tbody = document.getElementById('records-tbody');
+            const emptyState = document.getElementById('empty-state');
+            const footerCount = document.getElementById('table-footer-count');
+            const searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+
+            const filtered = records.filter(item => {
+                if (currentFilter !== 'Todos') {
+                    if (currentFilter === 'Outros') {
+                        if (['Doação', 'Descarte', 'Envio para Unidade', 'Acervo'].includes(item.status)) return false;
+                    } else if (item.status !== currentFilter) {
+                        return false;
+                    }
+                }
+                if (searchTerm) {
+                    const searchable = `${item.titulo} ${item.local} ${item.editora} ${item.cidade} ${item.ano} ${item.status}`.toLowerCase();
+                    if (!searchable.includes(searchTerm)) return false;
+                }
+                return true;
+            });
+
+            footerCount.textContent = `Exibindo ${filtered.length} de ${records.length} ${records.length === 1 ? 'registro' : 'registros'}`;
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                lucide.createIcons();
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+            const standardStatuses = ['Doação', 'Descarte', 'Envio para Unidade', 'Acervo', 'Triagem'];
+
+            tbody.innerHTML = filtered.map(item => {
+                const isCustom = !standardStatuses.includes(item.status);
+                const selectStyle = getStatusSelectClasses(item.status);
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition-colors">
+                        <td class="py-3.5 px-4 font-medium text-slate-900">${escapeHTML(item.titulo)}</td>
+                        <td class="py-3.5 px-3 text-center">
+                            <span class="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-lg bg-slate-100 text-slate-800 font-semibold text-xs">
+                                ${escapeHTML(item.quantidade)}
+                            </span>
+                        </td>
+                        <td class="py-3.5 px-4 text-slate-600">${escapeHTML(item.local)}</td>
+                        <td class="py-3.5 px-3 text-slate-600">${escapeHTML(item.ano || '—')}</td>
+                        <td class="py-3.5 px-4 text-slate-600">
+                            <div class="text-slate-800">${escapeHTML(item.editora || '—')}</div>
+                            ${item.cidade ? `<div class="text-xs text-slate-400">${escapeHTML(item.cidade)}</div>` : ''}
+                        </td>
+                        <td class="py-3.5 px-4">
+                            <select onchange="quickUpdateStatus('${escapeHTML(item.id)}', this.value)"
+                                class="px-2.5 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500 ${selectStyle}">
+                                <option value="Doação" ${item.status === 'Doação' ? 'selected' : ''}>Doação</option>
+                                <option value="Descarte" ${item.status === 'Descarte' ? 'selected' : ''}>Descarte</option>
+                                <option value="Envio para Unidade" ${item.status === 'Envio para Unidade' ? 'selected' : ''}>Envio para Unidade</option>
+                                <option value="Acervo" ${item.status === 'Acervo' ? 'selected' : ''}>Acervo</option>
+                                <option value="Triagem" ${item.status === 'Triagem' ? 'selected' : ''}>Triagem</option>
+                                ${isCustom ? `<option value="${escapeHTML(item.status)}" selected>${escapeHTML(item.status)}</option>` : ''}
+                            </select>
+                        </td>
+                        <td class="py-3.5 px-4 text-right whitespace-nowrap">
+                            <button type="button" onclick="editRecord('${escapeHTML(item.id)}')" title="Editar registro"
+                                class="p-1.5 text-slate-500 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-colors">
+                                <i data-lucide="pencil" class="w-4 h-4"></i>
+                            </button>
+                            <button type="button" onclick="confirmDelete('${escapeHTML(item.id)}')" title="Excluir registro"
+                                class="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors ml-1">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            lucide.createIcons();
+        };
+
+        // =========================================================================
+        // CRUD: CADASTRO, EDIÇÃO, ALTERAÇÃO RÁPIDA E EXCLUSÃO
+        // =========================================================================
+        window.toggleCustomStatus = function() {
+            const statusVal = document.getElementById('input-status').value;
+            const container = document.getElementById('custom-status-container');
+            const customInput = document.getElementById('input-custom-status');
+
+            if (statusVal === 'Personalizado') {
+                container.classList.remove('hidden');
+                customInput.required = true;
+                customInput.focus();
+            } else {
+                container.classList.add('hidden');
+                customInput.required = false;
+            }
+        };
+
+        window.handleFormSubmit = async function(event) {
+            event.preventDefault();
+
+            const id = document.getElementById('item-id').value;
+            const titulo = document.getElementById('input-titulo').value.trim();
+            const quantidade = parseInt(document.getElementById('input-quantidade').value, 10) || 1;
+            const local = document.getElementById('input-local').value.trim();
+            const anoRaw = document.getElementById('input-ano').value.trim();
+            const ano = anoRaw ? parseInt(anoRaw, 10) : '';
+            const editora = document.getElementById('input-editora').value.trim();
+            const cidade = document.getElementById('input-cidade').value.trim();
+            let status = document.getElementById('input-status').value;
+
+            if (status === 'Personalizado') {
+                status = document.getElementById('input-custom-status').value.trim() || 'Outro';
+            }
+
+            if (!titulo || !local) {
+                showToast('Preencha os campos obrigatórios (Título e Local).', 'error');
+                return;
+            }
+
+            const recordId = id || (crypto.randomUUID ? crypto.randomUUID() : 'item-' + Date.now());
+            const existing = records.find(r => r.id === recordId);
+
+            const payload = {
+                titulo,
+                quantidade,
+                local,
+                ano,
+                editora,
+                cidade,
+                status,
+                createdAt: existing ? (existing.createdAt || Date.now()) : Date.now(),
+                updatedAt: Date.now()
+            };
+
+            try {
+                if (db && currentUser) {
+                    await setDoc(getRecordDocRef(recordId), payload);
+                } else {
+                    if (id) {
+                        records = records.map(r => r.id === id ? { id: recordId, ...payload } : r);
+                    } else {
+                        records.unshift({ id: recordId, ...payload });
+                    }
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+                    refreshUI();
+                }
+
+                showToast(id ? 'Registro atualizado com sucesso!' : 'Título cadastrado com sucesso!', 'success');
+                resetForm();
+            } catch (err) {
+                console.error('Erro ao salvar:', err);
+                showToast('Erro ao salvar registro. Tente novamente.', 'error');
+            }
+        };
+
+        window.editRecord = function(id) {
+            const item = records.find(r => r.id === id);
+            if (!item) return;
+
+            document.getElementById('item-id').value = item.id;
+            document.getElementById('input-titulo').value = item.titulo || '';
+            document.getElementById('input-quantidade').value = item.quantidade || 1;
+            document.getElementById('input-local').value = item.local || '';
+            document.getElementById('input-ano').value = item.ano || '';
+            document.getElementById('input-editora').value = item.editora || '';
+            document.getElementById('input-cidade').value = item.cidade || '';
+
+            const standardStatuses = ['Doação', 'Descarte', 'Envio para Unidade', 'Acervo', 'Triagem'];
+            const statusSelect = document.getElementById('input-status');
+            if (standardStatuses.includes(item.status)) {
+                statusSelect.value = item.status;
+                toggleCustomStatus();
+            } else {
+                statusSelect.value = 'Personalizado';
+                toggleCustomStatus();
+                document.getElementById('input-custom-status').value = item.status;
+            }
+
+            document.getElementById('form-title').textContent = 'Editando Registro';
+            document.getElementById('submit-btn-text').textContent = 'Salvar Alterações';
+            document.getElementById('cancel-edit-btn').classList.remove('hidden');
+            document.getElementById('book-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+
+        window.resetForm = function() {
+            document.getElementById('book-form').reset();
+            document.getElementById('item-id').value = '';
+            document.getElementById('input-quantidade').value = 1;
+            document.getElementById('form-title').textContent = 'Novo Lançamento no Acervo';
+            document.getElementById('submit-btn-text').textContent = 'Cadastrar Item';
+            document.getElementById('cancel-edit-btn').classList.add('hidden');
+            toggleCustomStatus();
+        };
+
+        window.quickUpdateStatus = async function(id, newStatus) {
+            try {
+                if (db && currentUser) {
+                    await updateDoc(getRecordDocRef(id), { status: newStatus, updatedAt: Date.now() });
+                } else {
+                    records = records.map(r => r.id === id ? { ...r, status: newStatus } : r);
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+                    refreshUI();
+                }
+                showToast(`Status alterado para "${newStatus}".`, 'info');
+            } catch (err) {
+                console.error(err);
+                showToast('Não foi possível alterar o status.', 'error');
+            }
+        };
+
+        window.confirmDelete = function(id) {
+            const item = records.find(r => r.id === id);
+            if (!item) return;
+
+            itemToDeleteId = id;
+            document.getElementById('delete-item-title').textContent = `"${item.titulo}"`;
+            const modal = document.getElementById('delete-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        };
+
+        window.closeDeleteModal = function() {
+            itemToDeleteId = null;
+            const modal = document.getElementById('delete-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        };
+
+        document.getElementById('confirm-delete-btn').addEventListener('click', async () => {
+            if (!itemToDeleteId) return;
+            const id = itemToDeleteId;
+            closeDeleteModal();
+
+            try {
+                if (db && currentUser) {
+                    await deleteDoc(getRecordDocRef(id));
+                } else {
+                    records = records.filter(r => r.id !== id);
+                    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+                    refreshUI();
+                }
+                showToast('Registro excluído.', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('Erro ao excluir o registro.', 'error');
+            }
+        });
+
+        window.loadSampleData = async function() {
+            const samples = [
+                { titulo: 'Introdução à Biblioteconomia', quantidade: 3, local: 'Estante A2', ano: 2019, editora: 'Briquet de Lemos', cidade: 'Brasília', status: 'Doação' },
+                { titulo: 'Anuário Estatístico 1998', quantidade: 2, local: 'Caixa Descarte 04', ano: 1998, editora: 'IBGE', cidade: 'Rio de Janeiro', status: 'Descarte' },
+                { titulo: 'História da Amazônia', quantidade: 5, local: 'Setor Regional - Prateleira 1', ano: 2021, editora: 'Valer', cidade: 'Manaus', status: 'Envio para Unidade' }
+            ];
+
+            for (let i = 0; i < samples.length; i++) {
+                const sampleId = 'sample-' + Date.now() + '-' + i;
+                const payload = { ...samples[i], createdAt: Date.now() + i };
+                if (db && currentUser) {
+                    await setDoc(getRecordDocRef(sampleId), payload);
+                } else {
+                    records.push({ id: sampleId, ...payload });
+                }
+            }
+
+            if (!db || !currentUser) {
+                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(records));
+                refreshUI();
+            }
+            showToast('Exemplos de demonstração carregados!', 'success');
+        };
+
+        // Inicializa o sistema ao carregar
+        initApp();
+
+        // =========================================================================
+        // GERAÇÃO E IMPRESSÃO / PDF DE TERMOS (DOAÇÃO, DESCARTE, ENVIO PARA UNIDADE)
+        // =========================================================================
+        function getTermoItems() {
+            const tipo = document.getElementById('termo-tipo').value;
+            const escopo = document.getElementById('termo-escopo').value;
+            const searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+
+            return records.filter(item => {
+                if (tipo !== 'Todos' && item.status !== tipo) return false;
+                if (escopo === 'filtrados' && searchTerm) {
+                    const searchable = `${item.titulo} ${item.local} ${item.editora} ${item.cidade} ${item.ano} ${item.status}`.toLowerCase();
+                    if (!searchable.includes(searchTerm)) return false;
+                }
+                return true;
+            });
+        }
+
+        function buildTermoHTML() {
+            const tipo = document.getElementById('termo-tipo').value;
+            const orgao = document.getElementById('termo-orgao').value.trim() || 'Biblioteca / Setor de Acervo';
+            const bibliotecario = document.getElementById('termo-bibliotecario').value.trim() || '________________________________________';
+            const recebedor = document.getElementById('termo-recebedor').value.trim() || '________________________________________';
+            const cidadeData = document.getElementById('termo-cidade-data').value.trim() || new Date().toLocaleDateString('pt-BR');
+            const observacao = document.getElementById('termo-observacao').value.trim();
+
+            const items = getTermoItems();
+            const totalExemplares = items.reduce((acc, r) => acc + (Number(r.quantidade) || 0), 0);
+            const isGeral = tipo === 'Todos';
+
+            let tituloDocumento = '';
+            let textoIntrodutorio = '';
+            let labelAssinatura2 = '';
+
+            if (isGeral) {
+                tituloDocumento = 'RELATÓRIO GERAL DE CATALOGAÇÃO E TRIAGEM DE ACERVO';
+                textoIntrodutorio = `Pelo presente relatório, a <strong>${escapeHTML(orgao)}</strong> apresenta a relação completa dos materiais bibliográficos registrados e inventariados no sistema, discriminando suas respectivas localizações, quantidades e destinações técnicas.`;
+                labelAssinatura2 = 'Recebedor / Conferente Responsável';
+            } else if (tipo === 'Doação') {
+                tituloDocumento = 'TERMO DE DOAÇÃO DE MATERIAL BIBLIOGRÁFICO';
+                textoIntrodutorio = `Pelo presente instrumento, a <strong>${escapeHTML(orgao)}</strong> formaliza a doação dos materiais bibliográficos abaixo relacionados, em perfeitas condições de uso para fins educacionais, culturais ou de pesquisa, declarando o recebedor estar de acordo com o recebimento definitivo do acervo listado.`;
+                labelAssinatura2 = 'Recebedor / Instituição Donatária';
+            } else if (tipo === 'Descarte') {
+                tituloDocumento = 'TERMO DE DESCARTE E BAIXA PATRIMONIAL DE ACERVO';
+                textoIntrodutorio = `Pelo presente termo, a <strong>${escapeHTML(orgao)}</strong> registra a baixa e o descarte técnico dos materiais bibliográficos abaixo relacionados, após critérios de avaliação de desatualização, estado físico irrecuperável ou duplicidade excessiva, encaminhando-os para destinação final ambientalmente adequada.`;
+                labelAssinatura2 = 'Recebedor / Responsável pelo Recolhimento ou Comissão';
+            } else {
+                tituloDocumento = 'TERMO DE TRANSFERÊNCIA / ENVIO PARA UNIDADE';
+                textoIntrodutorio = `Pelo presente termo, a <strong>${escapeHTML(orgao)}</strong> efetua a transferência e remessa dos materiais bibliográficos abaixo discriminados para a unidade destinatária, passando a integrar o acervo sob responsabilidade do recebedor abaixo assinado.`;
+                labelAssinatura2 = 'Recebedor / Responsável pela Unidade Destinatária';
+            }
+
+            const colCount = isGeral ? 8 : 7;
+            const rowsHtml = items.length > 0
+                ? items.map((item, idx) => `
+                    <tr style="page-break-inside: avoid;">
+                        <td style="border: 1px solid #334155; padding: 5px 6px; text-align: center;">${idx + 1}</td>
+                        <td style="border: 1px solid #334155; padding: 5px 6px;">${escapeHTML(item.titulo)}</td>
+                        <td style="border: 1px solid #334155; padding: 5px 6px;">${escapeHTML(item.local || '—')}</td>
+                        <td style="border: 1px solid #334155; padding: 5px 6px;">${escapeHTML(item.editora || '—')}</td>
+                        <td style="border: 1px solid #334155; padding: 5px 6px; text-align: center;">${escapeHTML(item.ano || '—')}</td>
+                        <td style="border: 1px solid #334155; padding: 5px 6px;">${escapeHTML(item.cidade || '—')}</td>
+                        ${isGeral ? `<td style="border: 1px solid #334155; padding: 5px 6px; text-align: center; font-weight: bold;">${escapeHTML(item.status || '—')}</td>` : ''}
+                        <td style="border: 1px solid #334155; padding: 5px 6px; text-align: center; font-weight: bold;">${escapeHTML(item.quantidade)}</td>
+                    </tr>
+                `).join('')
+                : `<tr><td colspan="${colCount}" style="border: 1px solid #334155; padding: 14px; text-align: center; color: #64748b;">Nenhum título encontrado para esta seleção.</td></tr>`;
+
+            return {
+                itemsCount: items.length,
+                totalExemplares,
+                tipo,
+                html: `
+                    <div style="width: 100%; max-width: 780px; margin: 0 auto; font-family: 'Times New Roman', Times, serif; color: #0f172a; line-height: 1.45; background: #ffffff;">
+                        <div style="text-align: center; border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 16px;">
+                            <div style="font-size: 12px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold;">${escapeHTML(orgao)}</div>
+                            <h1 style="font-size: 16px; font-weight: bold; margin: 5px 0 0 0;">${tituloDocumento}</h1>
+                            ${observacao ? `<div style="font-size: 11px; margin-top: 4px;">Referência / Processo: ${escapeHTML(observacao)}</div>` : ''}
+                        </div>
+
+                        <p style="font-size: 12px; text-align: justify; margin-bottom: 14px;">
+                            ${textoIntrodutorio}
+                        </p>
+
+                        <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 14px;">
+                            <thead>
+                                <tr style="background-color: #f1f5f9;">
+                                    <th style="border: 1px solid #334155; padding: 5px 6px; width: 32px;">Nº</th>
+                                    <th style="border: 1px solid #334155; padding: 5px 6px; text-align: left;">Título da Obra</th>
+                                    <th style="border: 1px solid #334155; padding: 5px 6px; text-align: left;">Local</th>
+                                    <th style="border: 1px solid #334155; padding: 5px 6px; text-align: left;">Editora</th>
+                                    <th style="border: 1px solid #334155; padding: 5px 6px; width: 42px;">Ano</th>
+                                    <th style="border: 1px solid #334155; padding: 5px 6px; text-align: left;">Cidade</th>
+                                    ${isGeral ? `<th style="border: 1px solid #334155; padding: 5px 6px; width: 78px;">Status</th>` : ''}
+                                    <th style="border: 1px solid #334155; padding: 5px 6px; width: 42px;">Qtd.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rowsHtml}
+                            </tbody>
+                            <tfoot>
+                                <tr style="background-color: #f8fafc; font-weight: bold;">
+                                    <td colspan="${colCount - 1}" style="border: 1px solid #334155; padding: 6px 8px; text-align: right;">
+                                        Total: ${items.length} ${items.length === 1 ? 'título' : 'títulos'} | Total de Exemplares:
+                                    </td>
+                                    <td style="border: 1px solid #334155; padding: 6px 8px; text-align: center;">${totalExemplares}</td>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        <div class="signature-block" style="page-break-inside: avoid; margin-top: 20px;">
+                            <p style="font-size: 12px; text-align: right; margin-bottom: 48px;">
+                                ${escapeHTML(cidadeData)}.
+                            </p>
+
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 24px;">
+                                <tr>
+                                    <td style="width: 46%; text-align: center; vertical-align: top; padding: 0 10px;">
+                                        <div style="border-top: 1px solid #0f172a; padding-top: 6px; font-size: 11px;">
+                                            <strong>${escapeHTML(bibliotecario)}</strong><br>
+                                            Bibliotecário(a) Responsável
+                                        </div>
+                                    </td>
+                                    <td style="width: 8%;"></td>
+                                    <td style="width: 46%; text-align: center; vertical-align: top; padding: 0 10px;">
+                                        <div style="border-top: 1px solid #0f172a; padding-top: 6px; font-size: 11px;">
+                                            <strong>${escapeHTML(recebedor)}</strong><br>
+                                            ${labelAssinatura2}
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                `
+            };
+        }
+
+        window.openTermoModal = function(defaultTipo) {
+            const modal = document.getElementById('termo-modal');
+            const tipoSelect = document.getElementById('termo-tipo');
+            if (defaultTipo && ['Todos', 'Doação', 'Descarte', 'Envio para Unidade'].includes(defaultTipo)) {
+                tipoSelect.value = defaultTipo;
+            } else if (['Doação', 'Descarte', 'Envio para Unidade'].includes(currentFilter)) {
+                tipoSelect.value = currentFilter;
+            } else {
+                tipoSelect.value = 'Todos';
+            }
+
+            const dateInput = document.getElementById('termo-cidade-data');
+            if (!dateInput.value) {
+                const hoje = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
+                dateInput.value = `Manaus, ${hoje}`;
+            }
+
+            updateTermoPreview();
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            lucide.createIcons();
+        };
+
+        window.closeTermoModal = function() {
+            const modal = document.getElementById('termo-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        };
+
+        window.updateTermoPreview = function() {
+            const docData = buildTermoHTML();
+            document.getElementById('termo-items-summary').textContent =
+                `${docData.itemsCount} ${docData.itemsCount === 1 ? 'título' : 'títulos'} (${docData.totalExemplares} exemplares)`;
+            document.getElementById('termo-live-preview').innerHTML = docData.html;
+        };
+
+        window.downloadTermoPDF = async function() {
+            const docData = buildTermoHTML();
+            if (docData.itemsCount === 0) {
+                showToast('Não há itens nesta seleção para gerar o PDF.', 'error');
+                return;
+            }
+
+            const btn = document.getElementById('download-pdf-btn');
+            const originalBtnHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span>Gerando PDF...</span>';
+
+            try {
+                const dateSlug = new Date().toISOString().slice(0, 10);
+                const tipoSlug = docData.tipo === 'Todos'
+                    ? 'Relatorio_Geral'
+                    : 'Termo_' + docData.tipo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+                const filename = `${tipoSlug}_${dateSlug}.pdf`;
+
+                const container = document.createElement('div');
+                container.style.padding = '12mm';
+                container.style.background = '#ffffff';
+                container.innerHTML = docData.html;
+
+                if (typeof html2pdf !== 'undefined') {
+                    const opt = {
+                        margin: [10, 10, 12, 10],
+                        filename: filename,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, letterRendering: true },
+                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+                    };
+                    await html2pdf().set(opt).from(container).save();
+                    showToast(`PDF "${filename}" baixado com sucesso!`, 'success');
+                } else {
+                    printTermo();
+                }
+            } catch (err) {
+                console.error('Erro ao gerar PDF direto:', err);
+                showToast('Abrindo visualização para impressão/PDF...', 'info');
+                printTermo();
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalBtnHtml;
+                lucide.createIcons();
+            }
+        };
+
+        window.printTermo = function() {
+            const docData = buildTermoHTML();
+            if (docData.itemsCount === 0) {
+                showToast('Não há itens nesta seleção para imprimir.', 'error');
+                return;
+            }
+
+            const dateSlug = new Date().toISOString().slice(0, 10);
+            const tipoSlug = docData.tipo === 'Todos'
+                ? 'Relatorio_Geral'
+                : 'Termo_' + docData.tipo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+            const docTitle = `${tipoSlug}_${dateSlug}`;
+
+            // Tenta abrir uma janela dedicada limpa (evita bloqueios de iframe)
+            const printWin = window.open('', '_blank', 'width=900,height=750');
+            if (printWin) {
+                printWin.document.open();
+                printWin.document.write(`
+                    <!DOCTYPE html>
+                    <html lang="pt-BR">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>${docTitle}</title>
+                        <style>
+                            @page { size: A4 portrait; margin: 12mm; }
+                            body { margin: 0; padding: 16px; background: #fff; color: #0f172a; }
+                            .toolbar {
+                                display: flex; justify-content: space-between; align-items: center;
+                                background: #f1f5f9; border: 1px solid #cbd5e1; padding: 10px 16px;
+                                border-radius: 8px; margin-bottom: 20px; font-family: sans-serif; font-size: 13px;
+                            }
+                            .btn-print {
+                                background: #0d9488; color: #fff; border: none; padding: 8px 16px;
+                                border-radius: 6px; font-weight: bold; cursor: pointer;
+                            }
+                            @media print {
+                                .toolbar { display: none !important; }
+                                body { padding: 0; }
+                            }
+                        </style>
+                    </head>
+                    <body>
+                        <div class="toolbar">
+                            <span>Documento pronto! Clique no botão ao lado e escolha sua impressora ou <strong>"Salvar como PDF"</strong>.</span>
+                            <button class="btn-print" onclick="window.print()">Imprimir / Salvar PDF</button>
+                        </div>
+                        ${docData.html}
+                        <script>
+                            window.onload = function() {
+                                setTimeout(function() { window.print(); }, 250);
+                            };
+                        <\/script>
+                    </body>
+                    </html>
+                `);
+                printWin.document.close();
+            } else {
+                // Fallback na própria página caso pop-ups estejam bloqueados
+                const originalTitle = document.title;
+                document.getElementById('print-area').innerHTML = docData.html;
+                document.title = docTitle;
+                closeTermoModal();
+                setTimeout(() => {
+                    window.print();
+                    setTimeout(() => { document.title = originalTitle; }, 500);
+                }, 150);
+            }
+        };
+
+        // =========================================================================
+        // EXPORTAÇÃO E IMPORTAÇÃO CSV (COMPATÍVEL COM EXCEL EM PORTUGUÊS)
+        // =========================================================================
+        window.exportToCSV = function() {
+            if (records.length === 0) {
+                showToast('Não há registros para exportar.', 'error');
+                return;
+            }
+
+            // Usando ponto e vírgula (;) como separador padrão para Excel em PT-BR + BOM UTF-8
+            const headers = ['Título', 'Quantidade', 'Local de Armazenamento', 'Ano', 'Editora', 'Cidade', 'Status'];
+            const rows = records.map(r => [
+                `"${String(r.titulo || '').replace(/"/g, '""')}"`,
+                r.quantidade || 1,
+                `"${String(r.local || '').replace(/"/g, '""')}"`,
+                r.ano || '',
+                `"${String(r.editora || '').replace(/"/g, '""')}"`,
+                `"${String(r.cidade || '').replace(/"/g, '""')}"`,
+                `"${String(r.status || '').replace(/"/g, '""')}"`
+            ].join(';'));
+
+            const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+
+            const link = document.createElement('a');
+            const dateStr = new Date().toISOString().slice(0, 10);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `acervo_triagem_${dateStr}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showToast('Planilha CSV exportada com sucesso!', 'success');
+        };
+
+        window.handleCSVImport = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!currentUser || !db) {
+                showToast('Aguarde a conexão online antes de importar.', 'error');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const text = e.target.result;
+                    const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+                    if (lines.length < 2) {
+                        showToast('O arquivo CSV está vazio ou sem dados.', 'error');
+                        return;
+                    }
+
+                    const delimiter = lines[0].includes(';') ? ';' : ',';
+                    let importedCount = 0;
+
+                    for (let i = 1; i < lines.length; i++) {
+                        const cols = parseCSVLine(lines[i], delimiter);
+                        if (cols.length >= 1 && cols[0].trim()) {
+                            const newId = crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + i;
+                            await setDoc(getRecordDocRef(newId), {
+                                titulo: cols[0].trim(),
+                                quantidade: parseInt(cols[1], 10) || 1,
+                                local: (cols[2] || 'Não informado').trim(),
+                                ano: cols[3] ? (parseInt(cols[3], 10) || '') : '',
+                                editora: (cols[4] || '').trim(),
+                                cidade: (cols[5] || '').trim(),
+                                status: (cols[6] || 'Triagem').trim(),
+                                createdAt: Date.now() + i
+                            });
+                            importedCount++;
+                        }
+                    }
+
+                    if (importedCount > 0) {
+                        showToast(`${importedCount} registros importados e salvos online!`, 'success');
+                    } else {
+                        showToast('Nenhum registro válido encontrado no CSV.', 'error');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('Erro ao processar e salvar o arquivo CSV.', 'error');
+                }
+                event.target.value = '';
+            };
+            reader.readAsText(file, 'UTF-8');
+        };
+
+        function parseCSVLine(line, delimiter) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    if (inQuotes && line[i + 1] === '"') {
+                        current += '"';
+                        i++;
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === delimiter && !inQuotes) {
+                    result.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current);
+            return result;
+        }
+
+        // =========================================================================
+        // NOTIFICAÇÕES TOAST
+        // =========================================================================
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+
+            const styles = {
+                success: 'bg-slate-900 text-white border-slate-700',
+                error: 'bg-rose-600 text-white border-rose-500',
+                info: 'bg-brand-700 text-white border-brand-600'
+            };
+
+            const icons = {
+                success: 'check-circle-2',
+                error: 'alert-circle',
+                info: 'info'
+            };
+
+            toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium transform transition-all duration-300 translate-y-2 opacity-0 ${styles[type] || styles.success}`;
+            toast.innerHTML = `
+                <i data-lucide="${icons[type] || 'check-circle-2'}" class="w-4 h-4 shrink-0"></i>
+                <span>${escapeHTML(message)}</span>
+            `;
+
+            container.appendChild(toast);
+            lucide.createIcons();
+
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-2', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3200);
+        }
+    </script>
+</body>
+</html>
